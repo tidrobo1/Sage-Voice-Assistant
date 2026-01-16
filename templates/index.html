@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sage - Voice Assistant</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            color: #888;
+            margin-bottom: 40px;
+        }
+
+        /* Microphone Button */
+        .mic-container {
+            position: relative;
+            margin-bottom: 5px;
+        }
+
+        .mic-button {
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            background: linear-gradient(145deg, #2a2a4a, #1a1a2e);
+            border: 3px solid #3a3a5a;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            position: relative;
+            z-index: 2;
+        }
+
+        .mic-button:hover {
+            transform: scale(1.05);
+            border-color: #00d9ff;
+        }
+
+        .mic-button.listening {
+            border-color: #00ff88;
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.4);
+        }
+
+        .mic-button.speaking {
+            border-color: #00d9ff;
+        }
+
+        .mic-icon {
+            font-size: 60px;
+        }
+
+        /* Pulse animation rings - hidden by default */
+        .pulse-ring {
+            position: absolute;
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            border: 2px solid #00d9ff;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0;
+            z-index: 1;
+            display: none;
+        }
+
+        /* Only show and animate when speaking */
+        .speaking .pulse-ring {
+            display: block;
+            animation: pulse 1.5s ease-out infinite;
+        }
+
+        .speaking .pulse-ring:nth-child(2) {
+            animation-delay: 0.5s;
+        }
+
+        .speaking .pulse-ring:nth-child(3) {
+            animation-delay: 1s;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 0.6;
+            }
+            100% {
+                transform: translate(-50%, -50%) scale(1.8);
+                opacity: 0;
+            }
+        }
+
+        .status-text {
+            margin-top: 10px;
+            margin-bottom: 30px;
+            font-size: 1.1rem;
+            color: #888;
+            transition: color 0.3s ease;
+        }
+
+        .status-text.listening {
+            color: #00ff88;
+        }
+
+        .status-text.speaking {
+            color: #00d9ff;
+        }
+
+        /* Chat Container */
+        .chat-container {
+            width: 100%;
+            max-width: 600px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .chat-message {
+            padding: 12px 16px;
+            margin-bottom: 12px;
+            border-radius: 12px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .chat-message.sage {
+            background: linear-gradient(135deg, rgba(0, 217, 255, 0.2), rgba(0, 217, 255, 0.1));
+            border-left: 3px solid #00d9ff;
+        }
+
+        .chat-message.user {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.2), rgba(0, 255, 136, 0.1));
+            border-left: 3px solid #00ff88;
+        }
+
+        .chat-message .sender {
+            font-weight: 600;
+            margin-bottom: 4px;
+            font-size: 0.85rem;
+        }
+
+        .chat-message.sage .sender {
+            color: #00d9ff;
+        }
+
+        .chat-message.user .sender {
+            color: #00ff88;
+        }
+
+        .chat-message .text {
+            color: #ddd;
+            line-height: 1.5;
+        }
+
+        .empty-chat {
+            text-align: center;
+            color: #666;
+            padding: 40px;
+        }
+
+        /* Scrollbar styling */
+        .chat-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .chat-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <h1>Sage</h1>
+    <p class="subtitle">Your Voice Assistant</p>
+
+    <div class="mic-container" id="micContainer">
+        <div class="pulse-ring"></div>
+        <div class="pulse-ring"></div>
+        <div class="pulse-ring"></div>
+        <button class="mic-button" id="micButton">
+            <span class="mic-icon">🎤</span>
+        </button>
+    </div>
+
+    <p class="status-text" id="statusText">Tap to speak to Sage</p>
+
+    <div class="chat-container" id="chatContainer">
+        <div class="empty-chat" id="emptyChat">
+            Your conversation with Sage will appear here...
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const micButton = document.getElementById('micButton');
+        const micContainer = document.getElementById('micContainer');
+        const statusText = document.getElementById('statusText');
+        const chatContainer = document.getElementById('chatContainer');
+        const emptyChat = document.getElementById('emptyChat');
+
+        let isListening = false;
+
+        // Connect to server
+        socket.on('connect', () => {
+            console.log('Connected to Sage');
+        });
+
+        socket.on('status', (data) => {
+            console.log(data.message);
+        });
+
+        // Handle Sage speaking
+        socket.on('sage_speaking', (data) => {
+            if (data.speaking) {
+                micContainer.classList.add('speaking');
+                micButton.classList.add('speaking');
+                statusText.textContent = 'Sage is speaking...';
+                statusText.className = 'status-text speaking';
+            } else {
+                micContainer.classList.remove('speaking');
+                micButton.classList.remove('speaking');
+                if (!isListening) {
+                    statusText.textContent = 'Tap to speak to Sage';
+                    statusText.className = 'status-text';
+                }
+            }
+        });
+
+        // Handle Sage messages
+        socket.on('sage_message', (data) => {
+            addMessage('Sage', data.text, 'sage');
+        });
+
+        // Handle user messages
+        socket.on('user_message', (data) => {
+            addMessage('You', data.text, 'user');
+        });
+
+        // Add message to chat
+        function addMessage(sender, text, type) {
+            // Remove empty chat placeholder
+            if (emptyChat) {
+                emptyChat.remove();
+            }
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message ${type}`;
+            messageDiv.innerHTML = `
+                <div class="sender">${sender}</div>
+                <div class="text">${text}</div>
+            `;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Mic button click handler
+        micButton.addEventListener('click', () => {
+            isListening = !isListening;
+
+            if (isListening) {
+                // Start the conversation when mic is clicked
+                socket.emit('start_conversation');
+                micButton.classList.add('listening');
+                statusText.textContent = 'Listening...';
+                statusText.className = 'status-text listening';
+            } else {
+                // End the conversation when mic is clicked again
+                socket.emit('end_conversation');
+                micButton.classList.remove('listening');
+                micButton.classList.remove('speaking');
+                micContainer.classList.remove('speaking');
+                statusText.textContent = 'Tap to speak to Sage';
+                statusText.className = 'status-text';
+            }
+        });
+    </script>
+</body>
+</html>
