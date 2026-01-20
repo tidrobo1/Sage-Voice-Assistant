@@ -247,10 +247,11 @@
         const emptyChat = document.getElementById('emptyChat');
 
         let isListening = false;
+        let sessionStarted = false;
 
         // Connect to server
         socket.on('connect', () => {
-            console.log('Connected to Sage');
+            console.log('Connected to server');
         });
 
         socket.on('status', (data) => {
@@ -267,7 +268,10 @@
             } else {
                 micContainer.classList.remove('speaking');
                 micButton.classList.remove('speaking');
-                if (!isListening) {
+                if (isListening) {
+                    statusText.textContent = 'Listening...';
+                    statusText.className = 'status-text listening';
+                } else {
                     statusText.textContent = 'Tap to speak to Sage';
                     statusText.className = 'status-text';
                 }
@@ -306,19 +310,31 @@
             isListening = !isListening;
 
             if (isListening) {
-                // Start the conversation when mic is clicked
-                socket.emit('start_conversation');
+                // First click: start session and unmute
+                if (!sessionStarted) {
+                    socket.emit('start_conversation');
+                    sessionStarted = true;
+                }
+                // Unmute to start listening
+                socket.emit('unmute');
                 micButton.classList.add('listening');
                 statusText.textContent = 'Listening...';
                 statusText.className = 'status-text listening';
             } else {
-                // End the conversation when mic is clicked again
-                socket.emit('end_conversation');
+                // Mute to stop listening (but keep session alive)
+                socket.emit('mute');
                 micButton.classList.remove('listening');
                 micButton.classList.remove('speaking');
                 micContainer.classList.remove('speaking');
                 statusText.textContent = 'Tap to speak to Sage';
                 statusText.className = 'status-text';
+            }
+        });
+
+        // End session when page is closed
+        window.addEventListener('beforeunload', () => {
+            if (sessionStarted) {
+                socket.emit('end_conversation');
             }
         });
     </script>
